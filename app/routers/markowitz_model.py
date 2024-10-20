@@ -1,7 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from .helpers import markowitz_helper
+from pydantic import BaseModel
+from typing import List
 
-# from ..dependencies import get_token_header
+class PortfolioParams(BaseModel):
+    stocks: List[str]
+    start_date: str
+    end_date: str
 
 router = APIRouter(
     prefix="/markowitz_model",
@@ -11,11 +16,9 @@ router = APIRouter(
 )
 
 
-fake_items_db = {"plumbus": {"name": "Plumbus"}, "gun": {"name": "Portal Gun"}}
-
-
 @router.get("/")
-async def getOptimalPortfolio():
-    result = markowitz_helper.start_model()
-    print(result)
+async def getOptimalPortfolio(params: PortfolioParams):
+    # Convert Pydantic model to dictionary
+    params_dict = params.model_dump()
+    result = markowitz_helper.start_model(params_dict)
     return {"result": result}

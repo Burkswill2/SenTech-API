@@ -1,260 +1,153 @@
-'''
-Portfolio Optimization using Modern Portfolio Theory
-
-This script performs portfolio optimization based on the Modern Portfolio Theory (MPT).
-It downloads historical stock data, calculates returns, generates random portfolios,
-and finds the optimal portfolio composition that maximizes the Sharpe ratio.
-
-Key Features:
-1. Downloads historical stock data using yfinance
-2. Calculates logarithmic daily returns
-3. Generates random portfolios
-4. Finds the optimal portfolio using the Sharpe ratio
-5. Visualizes the efficient frontier and the optimal portfolio
-
-Important Concepts:
-1. Modern Portfolio Theory: A framework for constructing optimal investment portfolios
-2. Sharpe Ratio: A measure of risk-adjusted return
-3. Efficient Frontier: The set of optimal portfolios that offer the highest expected return for a defined level of risk
-
-Note: This script uses a sample set of stocks and a fixed date range. Adjust these parameters as needed.
-'''
-
 import numpy as np
 import yfinance as yahoo
 import pandas as pd
 import matplotlib.pyplot as plt
 import scipy.optimize as optimization
 from scipy.optimize import OptimizeResult
-from typing import Dict, Any
+from typing import Dict, Any, List, Tuple
 
-# Constants
-NUM_TRADING_DAYS = 252  # Average number of trading days in a year
-NUM_PORTFOLIOS = 10000  # Number of random portfolios to generate
 
-# List of stocks to analyze
-stocks = ['AAPL', 'WMT', 'TSLA', 'GE', 'AMZN', 'DB']
+class PortfolioOptimizer:
+    NUM_TRADING_DAYS = 252  # Average number of trading days in a year
+    NUM_PORTFOLIOS = 10000  # Number of random portfolios to generate
 
-# Date range for historical data
-start_date = '2014-01-01'
-end_date = '2024-09-01'
+    def __init__(self, stocks: List[str], start_date: str, end_date: str):
+        self.stocks = stocks
+        self.start_date = start_date
+        self.end_date = end_date
+        self.dataset = self.download_data()
+        self.log_daily_returns = self.calculate_return()
 
-def download_data():
-    '''
-    Downloads historical stock data for the specified stocks and date range.
+    def download_data(self) -> pd.DataFrame:
+        stock_data = {}
+        for stock in self.stocks:
+            ticker = yahoo.Ticker(stock)
+            stock_data[stock] = ticker.history(start=self.start_date, end=self.end_date)['Close']
+        return pd.DataFrame(stock_data)
 
-    Returns:
-        pd.DataFrame: A DataFrame containing the closing prices for each stock.
-    '''
-    stock_data = {}
-    for stock in stocks:
-        ticker = yahoo.Ticker(stock)
-        stock_data[stock] = ticker.history(start=start_date, end=end_date)['Close']
-    return pd.DataFrame(stock_data)
+    def show_data(self):
+        self.dataset.plot(figsize=(10,6))
+        plt.show()
 
-def show_data(data):
-    '''
-    Plots the historical stock prices.
+    def calculate_return(self) -> pd.DataFrame:
+        log_return = np.log(self.dataset / self.dataset.shift(1))
+        return log_return[1:]
 
-    Args:
-        data (pd.DataFrame): DataFrame containing stock prices.
-    '''
-    data.plot(figsize=(10,6))
-    plt.show()
+    def show_statistics(self):
+        print(self.log_daily_returns.mean() * self.NUM_TRADING_DAYS)
+        print(self.log_daily_returns.cov() * self.NUM_TRADING_DAYS)
 
-def calculate_return(data):
-    '''
-    Calculates logarithmic daily returns.
+    @staticmethod
+    def show_mean_and_variance(returns: pd.DataFrame, weights: np.array):
+        portfolio_return = np.sum(returns.mean() * weights) * PortfolioOptimizer.NUM_TRADING_DAYS
+        portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * PortfolioOptimizer.NUM_TRADING_DAYS, weights)))
+        print("Expected portfolio mean (return): ", portfolio_return)
+        print("Expected portfolio volatility (standard deviation): ", portfolio_volatility)
 
-    Args:
-        data (pd.DataFrame): DataFrame containing stock prices.
+    @staticmethod
+    def show_portfolios(returns: np.array, volatilities: np.array):
+        plt.figure(figsize=(10,6))
+        plt.scatter(volatilities, returns, c=returns / volatilities, marker='o')
+        plt.grid(True)
+        plt.xlabel('Expected Volatility')
+        plt.ylabel('Expected Return')
+        plt.colorbar(label='Sharpe Ratio')
+        plt.show()
 
-    Returns:
-        pd.DataFrame: DataFrame containing logarithmic daily returns.
-    '''
-    log_return = np.log(data / data.shift(1))
-    return log_return[1:]
+    def generate_portfolios(self) -> Tuple[np.array, np.array, np.array]:
+        portfolio_means = []
+        portfolio_risks = []
+        portfolio_weights = []
 
-def show_statistics(returns):
-    '''
-    Prints annualized mean returns and covariance matrix.
+        for _ in range(self.NUM_PORTFOLIOS):
+            w = np.random.random(len(self.stocks))
+            w /= np.sum(w)
+            portfolio_weights.append(w)
+            portfolio_means.append(np.sum(self.log_daily_returns.mean() * w) * self.NUM_TRADING_DAYS)
+            portfolio_risks.append(np.sqrt(np.dot(w.T, np.dot(self.log_daily_returns.cov() * self.NUM_TRADING_DAYS, w))))
 
-    Args:
-        returns (pd.DataFrame): DataFrame containing daily returns.
-    '''
-    print(returns.mean() * NUM_TRADING_DAYS)
-    print(returns.cov() * NUM_TRADING_DAYS)
+        return np.array(portfolio_means), np.array(portfolio_risks), np.array(portfolio_weights)
 
-def show_mean_and_variance(returns, weights):
-    '''
-    Calculates and prints the expected return and volatility for a given portfolio.
+    @staticmethod
+    def statistics(weights: np.array, returns: pd.DataFrame) -> np.array:
+        portfolio_return = np.sum(returns.mean() * weights) * PortfolioOptimizer.NUM_TRADING_DAYS
+        portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * PortfolioOptimizer.NUM_TRADING_DAYS, weights)))
+        return np.array([portfolio_return, portfolio_volatility, portfolio_return/portfolio_volatility])
 
-    Args:
-        returns (pd.DataFrame): DataFrame containing daily returns.
-        weights (np.array): Array of portfolio weights.
-    '''
-    portfolio_return = np.sum(returns.mean() * weights) * NUM_TRADING_DAYS
-    portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * NUM_TRADING_DAYS, weights)))
-    print("Expected portfolio mean (return): ", portfolio_return)
-    print("Expected portfolio volatility (standard deviation): ", portfolio_volatility)
+    @staticmethod
+    def min_function_sharpe(weights: np.array, returns: pd.DataFrame) -> float:
+        return -PortfolioOptimizer.statistics(weights, returns)[2]
 
-def show_portfolios(returns, volatilities):
-    '''
-    Plots the efficient frontier.
+    def optimize_portfolio(self, weights: np.array) -> OptimizeResult:
+        constraints = {'type': 'eq', 'fun': lambda x: np.sum(x) - 1}
+        bounds = tuple((0,1) for _ in range(len(self.stocks)))
+        return optimization.minimize(fun=self.min_function_sharpe,
+                                     x0=weights[0],
+                                     args=self.log_daily_returns,
+                                     method='SLSQP',
+                                     bounds=bounds,
+                                     constraints=constraints)
 
-    Args:
-        returns (np.array): Array of portfolio returns.
-        volatilities (np.array): Array of portfolio volatilities.
-    '''
-    plt.figure(figsize=(10,6))
-    plt.scatter(volatilities, returns, c=returns / volatilities, marker='o')
-    plt.grid(True)
-    plt.xlabel('Expected Volatility')
-    plt.ylabel('Expected Return')
-    plt.colorbar(label='Sharpe Ratio')
-    plt.show()
+    def optimal_portfolio(self, optimum: OptimizeResult) -> Dict[str, float]:
+        return dict(zip(self.stocks, optimum['x'].round(3).tolist()))
 
-def generate_portfolios(returns):
-    '''
-    Generates random portfolios and calculates their returns and risks.
+    def jsonify_optimal_portfolio(self, optimum: OptimizeResult) -> Dict[str, Any]:
+        stats = self.statistics(optimum['x'].round(3), self.log_daily_returns)
+        optimal_port = self.optimal_portfolio(optimum)
 
-    Args:
-        returns (pd.DataFrame): DataFrame containing daily returns.
+        # Get the last closing prices for each stock
+        last_closing_prices = self.dataset.iloc[-1].to_dict()
 
-    Returns:
-        tuple: Arrays of portfolio means, risks, and weights.
-    '''
-    portfolio_means = []
-    portfolio_risks = []
-    portfolio_weights = []
+        # Calculate percent change over the last 30 days
+        if len(self.dataset) > 30:
+            percent_change_30d = ((self.dataset.iloc[-1] - self.dataset.iloc[-31]) / self.dataset.iloc[-31]) * 100
+        else:
+            percent_change_30d = {stock: None for stock in self.stocks}  # Handle insufficient data
 
-    for _ in range(NUM_PORTFOLIOS):
-        w = np.random.random(len(stocks))
-        w /= np.sum(w)
-        portfolio_weights.append(w)
-        portfolio_means.append(np.sum(returns.mean() * w) * NUM_TRADING_DAYS)
-        portfolio_risks.append(np.sqrt(np.dot(w.T, np.dot(returns.cov() * NUM_TRADING_DAYS, w))))
+        result = {
+            "portfolio": {
+                "weights": {
+                    asset: weight for asset, weight in optimal_port.items()
+                },
+                "expected_return": round(stats[0], 4),
+                "expected_volatility": round(stats[1], 4),
+                "expected_sharpe_ratio": round(stats[2], 4),
+            },
+            "last_closing_prices": {
+                "closing_prices": last_closing_prices,
+            },
+            "performance": {
+                "percent_change_30d": percent_change_30d.to_dict()  # Convert to dictionary for JSON serialization
+            }
+        }
 
-    return np.array(portfolio_means), np.array(portfolio_risks), np.array(portfolio_weights)
+        return result
 
-def statistics(weights, returns):
-    '''
-    Calculates portfolio statistics: return, volatility, and Sharpe ratio.
+    def show_optimal_portfolios(self, optimum: OptimizeResult, portfolio_returns: np.array, portfolio_volatilities: np.array):
+        plt.figure(figsize=(10,6))
+        plt.scatter(portfolio_volatilities, portfolio_returns, c=portfolio_returns / portfolio_volatilities, marker='o')
+        plt.grid(True)
+        plt.xlabel('Expected Volatility')
+        plt.ylabel('Expected Return')
+        plt.colorbar(label='Sharpe Ratio')
+        plt.plot(self.statistics(optimum['x'], self.log_daily_returns)[1], self.statistics(optimum['x'], self.log_daily_returns)[0], 'g*', markersize=20.0)
+        plt.show()
 
-    Args:
-        weights (np.array): Array of portfolio weights.
-        returns (pd.DataFrame): DataFrame containing daily returns.
+def start_model(params) -> Dict[str, Any]:
+    optimizer = PortfolioOptimizer(params["stocks"], params["start_date"], params["end_date"])
+    means, risks, pweights = optimizer.generate_portfolios()
+    optimum = optimizer.optimize_portfolio(pweights)
+    result = optimizer.jsonify_optimal_portfolio(optimum)
+    return result
 
-    Returns:
-        np.array: Array containing portfolio return, volatility, and Sharpe ratio.
-    '''
-    portfolio_return = np.sum(returns.mean() * weights) * NUM_TRADING_DAYS
-    portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * NUM_TRADING_DAYS, weights)))
-    return np.array([portfolio_return, portfolio_volatility, portfolio_return/portfolio_volatility])
+# Usage example
+if __name__ == "__main__":
 
-def min_function_sharpe(weights, returns):
-    '''
-    Function to minimize (negative Sharpe ratio) for optimization.
-
-    Args:
-        weights (np.array): Array of portfolio weights.
-        returns (pd.DataFrame): DataFrame containing daily returns.
-
-    Returns:
-        float: Negative Sharpe ratio.
-    '''
-    return -statistics(weights, returns)[2]
-
-def optimize_portfolio(weights, returns):
-    '''
-    Optimizes the portfolio to maximize the Sharpe ratio.
-
-    Args:
-        weights (np.array): Initial guess for portfolio weights.
-        returns (pd.DataFrame): DataFrame containing daily returns.
-
-    Returns:
-        OptimizeResult: Result of the optimization.
-    '''
-    constraints = {'type': 'eq', 'fun': lambda x: np.sum(x) - 1}
-    bounds = tuple((0,1) for _ in range(len(stocks)))
-    return optimization.minimize(fun=min_function_sharpe,
-                                 x0=weights[0],
-                                 args=returns,
-                                 method='SLSQP',
-                                 bounds=bounds,
-                                 constraints=constraints)
-
-def optimal_portfolio(optimum):
-    '''
-    Creates a dictionary of optimal portfolio weights.
-
-    Args:
-        optimum (OptimizeResult): Result of portfolio optimization.
-
-    Returns:
-        dict: Dictionary of stocks and their optimal weights.
-    '''
-    return dict(zip(stocks, optimum['x'].round(3).tolist()))
-
-def jsonify_optimal_portfolio(optimum: OptimizeResult, returns: pd.DataFrame) -> Dict[str, Any]:
-    """
-    Creates a JSON-serializable dictionary with the details of the optimal portfolio.
-
-    Args:
-        optimum (OptimizeResult): Result of portfolio optimization.
-        returns (pd.DataFrame): DataFrame containing daily returns.
-
-    Returns:
-        Dict[str, Any]: A dictionary containing the optimal portfolio details.
-    """
-    stats = statistics(optimum['x'].round(3), returns)
-    optimal_port = optimal_portfolio(optimum)
-
-    result = {
-        "optimal_portfolio": {
-            asset: weight for asset, weight in optimal_port.items()
-        },
-        "expected_return": round(stats[0], 4),
-        "expected_volatility": round(stats[1], 4),
-        "expected_sharpe_ratio": round(stats[2], 4)
+    params = {
+        "stocks" : ['AAPL', 'WMT', 'TSLA', 'GE', 'AMZN', 'DB'],
+        "start_date": "2014-01-01",
+        "end_date": "2024-09-01",
     }
 
-    return result
-
-def show_optimal_portfolios(optimum, returns, portfolio_returns, portfolio_volatilities):
-    '''
-    Plots the efficient frontier and highlights the optimal portfolio.
-
-    Args:
-        optimum (OptimizeResult): Result of portfolio optimization.
-        returns (pd.DataFrame): DataFrame containing daily returns.
-        portfolio_returns (np.array): Array of portfolio returns.
-        portfolio_volatilities (np.array): Array of portfolio volatilities.
-    '''
-    plt.figure(figsize=(10,6))
-    plt.scatter(portfolio_volatilities, portfolio_returns, c=portfolio_returns / portfolio_volatilities, marker='o')
-    plt.grid(True)
-    plt.xlabel('Expected Volatility')
-    plt.ylabel('Expected Return')
-    plt.colorbar(label='Sharpe Ratio')
-    plt.plot(statistics(optimum['x'], returns)[1], statistics(optimum['x'], returns)[0], 'g*', markersize=20.0)
-    plt.show()
-
-def start_model():
-    # Download and process data
-    dataset = download_data()
-    # show_data(dataset)
-    log_daily_returns = calculate_return(dataset)
-
-    # Generate random portfolios
-    means, risks, pweights = generate_portfolios(log_daily_returns)
-
-    # Find the optimal portfolio
-    optimum = optimize_portfolio(pweights, log_daily_returns)
-    result = jsonify_optimal_portfolio(optimum, log_daily_returns)
-
-    return result
-
-    # Visualize results
-    # show_optimal_portfolios(optimum, log_daily_returns, means, risks)
+    result = start_model(params)
+    print(result)
