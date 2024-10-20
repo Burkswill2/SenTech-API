@@ -1,1 +1,8 @@
 fastapi[all]
+numpy
+yfinance
+pandas
+matplotlib
+scipy
+fastapi
+uvicorn
