@@ -28,6 +28,7 @@ import scipy.optimize as optimization
 from scipy.optimize import OptimizeResult
 from typing import Dict, Any
 
+
 # Constants
 NUM_TRADING_DAYS = 252  # Average number of trading days in a year
 NUM_PORTFOLIOS = 10000  # Number of random portfolios to generate
