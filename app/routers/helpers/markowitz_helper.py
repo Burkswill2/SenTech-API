@@ -141,13 +141,13 @@ def start_model(params) -> Dict[str, Any]:
     return result
 
 # Usage example
-if __name__ == "__main__":
-
-    params = {
-        "stocks" : ['AAPL', 'WMT', 'TSLA', 'GE', 'AMZN', 'DB'],
-        "start_date": "2014-01-01",
-        "end_date": "2024-09-01",
-    }
-
-    result = start_model(params)
-    print(result)
+# if __name__ == "__main__":
+#
+    # params = {
+    #     "stocks" : ['AAPL', 'WMT', 'TSLA', 'GE', 'AMZN', 'DB'],
+    #     "start_date": "2014-01-01",
+    #     "end_date": "2024-09-01",
+    # }
+#
+#     result = start_model(params)
+#     print(result)

@@ -16,7 +16,7 @@ router = APIRouter(
 )
 
 
-@router.get("/")
+@router.post("/")  # Change to POST
 async def getOptimalPortfolio(params: PortfolioParams):
     # Convert Pydantic model to dictionary
     params_dict = params.model_dump()
