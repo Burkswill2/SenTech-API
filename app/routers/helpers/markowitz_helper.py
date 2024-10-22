@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import scipy.optimize as optimization
 from scipy.optimize import OptimizeResult
 from typing import Dict, Any, List, Tuple
+import plotly.graph_objects as go
 
 
 class PortfolioOptimizer:
@@ -91,63 +92,141 @@ class PortfolioOptimizer:
     def optimal_portfolio(self, optimum: OptimizeResult) -> Dict[str, float]:
         return dict(zip(self.stocks, optimum['x'].round(3).tolist()))
 
-    def jsonify_optimal_portfolio(self, optimum: OptimizeResult) -> Dict[str, Any]:
+    def jsonify_optimal_portfolio(self, optimum: OptimizeResult, means, risks, plot) -> Dict[str, Any]:
         stats = self.statistics(optimum['x'].round(3), self.log_daily_returns)
         optimal_port = self.optimal_portfolio(optimum)
 
-        # Get the last closing prices for each stock
-        last_closing_prices = self.dataset.iloc[-1].to_dict()
-
-        # Calculate percent change over the last 30 days
-        if len(self.dataset) > 30:
-            percent_change_30d = ((self.dataset.iloc[-1] - self.dataset.iloc[-31]) / self.dataset.iloc[-31]) * 100
+        # Calculate percent change over the last trading day
+        if len(self.dataset) >= 2:
+            percent_change_1d = ((self.dataset.iloc[-1] - self.dataset.iloc[-2]) / self.dataset.iloc[-2]) * 100
         else:
-            percent_change_30d = {stock: None for stock in self.stocks}  # Handle insufficient data
+            percent_change_1d = {stock: None for stock in self.stocks}  # Handle insufficient data
+
+        print("Last two closing prices:\n", self.dataset.tail(2))  # Diagnostic print
+
+        # Fetch additional company information
+        company_info = {}
+        for stock in self.stocks:
+            ticker = yahoo.Ticker(stock)
+            info = ticker.info
+            company_info[stock] = {
+                "sector": info.get("sector"),
+                "website": info.get("website"),
+                "longName": info.get("longName"),
+                "shortName": info.get("shortName"),
+                "previousClose": info.get("previousClose"),
+                "percent_change_1d": percent_change_1d[stock] if isinstance(percent_change_1d, dict) else None
+            }
+
+        # Create the portfolio structure with tickers as keys
+        portfolio = {
+            stock: {
+                "weight": round(optimal_port[stock], 3),
+                "info": company_info[stock]  # Add corresponding company info
+            }
+            for stock in self.stocks
+        }
+
+        print(self.log_daily_returns)
 
         result = {
-            "portfolio": {
-                "weights": {
-                    asset: weight for asset, weight in optimal_port.items()
-                },
-                "expected_return": round(stats[0], 4),
+            "result": {
+                "portfolio": portfolio,
+                "expected_return": round(stats[0], 3),
                 "expected_volatility": round(stats[1], 4),
                 "expected_sharpe_ratio": round(stats[2], 4),
-            },
-            "last_closing_prices": {
-                "closing_prices": last_closing_prices,
-            },
-            "performance": {
-                "percent_change_30d": percent_change_30d.to_dict()  # Convert to dictionary for JSON serialization
+                "optimum": optimum['x'].tolist(),  # Convert the NumPy array to a list
+                "returns": self.log_daily_returns.reset_index().to_dict(orient='records'),  # Convert to list of dicts
+                "means": means.tolist(),  # Convert NumPy array to list
+                "risks": risks.tolist(),  # Convert NumPy array to list
+                "plot" : plot,
             }
         }
 
         return result
 
-    def show_optimal_portfolios(self, optimum: OptimizeResult, portfolio_returns: np.array, portfolio_volatilities: np.array):
-        plt.figure(figsize=(10,6))
-        plt.scatter(portfolio_volatilities, portfolio_returns, c=portfolio_returns / portfolio_volatilities, marker='o')
-        plt.grid(True)
-        plt.xlabel('Expected Volatility')
-        plt.ylabel('Expected Return')
-        plt.colorbar(label='Sharpe Ratio')
-        plt.plot(self.statistics(optimum['x'], self.log_daily_returns)[1], self.statistics(optimum['x'], self.log_daily_returns)[0], 'g*', markersize=20.0)
-        plt.show()
+    # def show_optimal_portfolios(self, optimum: OptimizeResult, portfolio_returns: np.array, portfolio_volatilities: np.array):
+    #     plt.figure(figsize=(10,6))
+    #     plt.scatter(portfolio_volatilities, portfolio_returns, c=portfolio_returns / portfolio_volatilities, marker='o')
+    #     plt.grid(True)
+    #     plt.xlabel('Expected Volatility')
+    #     plt.ylabel('Expected Return')
+    #     plt.colorbar(label='Sharpe Ratio')
+    #     plt.plot(self.statistics(optimum['x'], self.log_daily_returns)[1], self.statistics(optimum['x'], self.log_daily_returns)[0], 'g*', markersize=20.0)
+    #     plt.show()
+
+    def show_optimal_portfolios(self, optimum, returns, portfolio_returns, portfolio_volatilities):
+        '''
+        Plots the efficient frontier and highlights the optimal portfolio as an interactive JSON object.
+
+        Args:
+            optimum (OptimizeResult): Result of portfolio optimization.
+            returns (pd.DataFrame): DataFrame containing daily returns.
+            portfolio_returns (np.array): Array of portfolio returns.
+            portfolio_volatilities (np.array): Array of portfolio volatilities.
+        '''
+        # Calculate Sharpe Ratios for the portfolios
+        sharpe_ratios = portfolio_returns / portfolio_volatilities
+
+        # Create a scatter plot
+        fig = go.Figure()
+
+        # Add scatter points for portfolios
+        fig.add_trace(go.Scatter(
+            x=portfolio_volatilities,
+            y=portfolio_returns,
+            mode='markers',
+            marker=dict(
+                color=sharpe_ratios,
+                colorscale='Viridis',
+                colorbar=dict(title='Sharpe Ratio'),
+                size=10,
+                opacity=0.7
+            ),
+            text=[f'Sharpe: {sharpe:.2f}' for sharpe in sharpe_ratios],
+            hoverinfo='text'
+        ))
+
+        # Highlight the optimal portfolio
+        optimal_stats = self.statistics(optimum['x'], returns)  # Ensure statistics function is defined
+        fig.add_trace(go.Scatter(
+            x=[optimal_stats[1]],
+            y=[optimal_stats[0]],
+            mode='markers',
+            marker=dict(color='green', size=20, symbol='star'),
+            name='Optimal Portfolio'
+        ))
+
+        # Update layout
+        fig.update_layout(
+            title='Efficient Frontier with Optimal Portfolio',
+            xaxis_title='Expected Volatility',
+            yaxis_title='Expected Return',
+            showlegend=True
+        )
+
+        # Convert the figure to JSON
+        plot_json = fig.to_json()
+
+        return plot_json
 
 def start_model(params) -> Dict[str, Any]:
     optimizer = PortfolioOptimizer(params["stocks"], params["start_date"], params["end_date"])
     means, risks, pweights = optimizer.generate_portfolios()
     optimum = optimizer.optimize_portfolio(pweights)
-    result = optimizer.jsonify_optimal_portfolio(optimum)
+    log_daily_returns = optimizer.log_daily_returns
+    plot = optimizer.    show_optimal_portfolios(optimum, log_daily_returns, means, risks)
+    result = optimizer.jsonify_optimal_portfolio(optimum, means, risks, plot)
     return result
 
 # Usage example
-# if __name__ == "__main__":
-#
-    # params = {
-    #     "stocks" : ['AAPL', 'WMT', 'TSLA', 'GE', 'AMZN', 'DB'],
-    #     "start_date": "2014-01-01",
-    #     "end_date": "2024-09-01",
-    # }
-#
-#     result = start_model(params)
-#     print(result)
+if __name__ == "__main__":
+
+    params = {
+        "stocks" : ['AAPL', 'WMT', 'TSLA', 'GE', 'AMZN', 'DB'],
+        "start_date": "2014-01-01",
+        "end_date": "2024-09-01",
+    }
+
+    result = start_model(params)
+    # print(result)
