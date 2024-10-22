@@ -215,7 +215,7 @@ def start_model(params) -> Dict[str, Any]:
     means, risks, pweights = optimizer.generate_portfolios()
     optimum = optimizer.optimize_portfolio(pweights)
     log_daily_returns = optimizer.log_daily_returns
-    plot = optimizer.    show_optimal_portfolios(optimum, log_daily_returns, means, risks)
+    plot = optimizer.show_optimal_portfolios(optimum, log_daily_returns, means, risks)
     result = optimizer.jsonify_optimal_portfolio(optimum, means, risks, plot)
     return result
 
